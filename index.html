@@ -24,6 +24,7 @@ h2{font-size:15px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute
 button{font:inherit;color:inherit}
 .btn{display:block;width:100%;text-align:left;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin:0 0 10px;cursor:pointer}
 .btn b{display:block;font-size:17px}
+a.btn{text-decoration:none;color:inherit}
 .btn span{color:var(--mute);font-size:14px}
 .btn:active{transform:scale(.99)}
 .btn.primary{background:var(--acc);border-color:var(--acc);color:#fff}
@@ -136,6 +137,11 @@ function home() {
   <button class="btn" onclick="start('quick',{n:25})"><b>25 questions</b><span>Random</span></button></div>
   ${Object.keys(SEC).map(s => `<button class="btn" onclick="start('section',{s:'${s}'})"><b>Section ${s}: ${esc(SEC[s])}</b><span>${DATA.questions.filter(q => q.s === s).length} questions · ${Math.round(W[s] / 75 * 100)}% of exam</span></button>`).join('')}
   <button class="btn" onclick="start('missed')" ${miss ? '' : 'disabled style="opacity:.5"'}><b>Redo questions I missed</b><span>${miss} waiting</span></button>`;
+  h += `<h2>Study guide for Apple Books</h2>
+  <a class="btn" href="downloads/SIE-Study-Guide.epub" target="_blank" rel="noopener"><b>Study guide (EPUB) · best for Books</b><span>Text resizes to your screen · 14 diagrams and charts · 1.4 MB</span></a>
+  <a class="btn" href="downloads/SIE-Study-Guide.pdf" target="_blank" rel="noopener"><b>Study guide (PDF)</b><span>Same content as the printed pages · 45 pages</span></a>
+  <a class="btn" href="downloads/SIE-Practice-Exams.pdf" target="_blank" rel="noopener"><b>Practice exams (PDF)</b><span>Exams A and B plus a bonus drill, with answer keys</span></a>
+  <p class="meta">Tap one while online. EPUB: tap <b>Download</b>, then open it from Safari's downloads and choose <b>Books</b>. PDF: tap <b>Share</b> (or <b>•••</b> then Share), then <b>Books</b>. Once in Books, it works offline.</p>`;
   h += `<h2>Your progress</h2><div class="card">`;
   h += `<div class="sec"><span>Questions seen</span><span>${seen} / ${DATA.questions.length}</span></div>`;
   for (const s in SEC) {
