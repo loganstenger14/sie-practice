@@ -137,11 +137,8 @@ function home() {
   <button class="btn" onclick="start('quick',{n:25})"><b>25 questions</b><span>Random</span></button></div>
   ${Object.keys(SEC).map(s => `<button class="btn" onclick="start('section',{s:'${s}'})"><b>Section ${s}: ${esc(SEC[s])}</b><span>${DATA.questions.filter(q => q.s === s).length} questions · ${Math.round(W[s] / 75 * 100)}% of exam</span></button>`).join('')}
   <button class="btn" onclick="start('missed')" ${miss ? '' : 'disabled style="opacity:.5"'}><b>Redo questions I missed</b><span>${miss} waiting</span></button>`;
-  h += `<h2>Study guide for Apple Books</h2>
-  <a class="btn" href="downloads/SIE-Study-Guide.epub" target="_blank" rel="noopener"><b>Study guide (EPUB) · best for Books</b><span>Text resizes to your screen · 14 diagrams and charts · 1.4 MB</span></a>
-  <a class="btn" href="downloads/SIE-Study-Guide.pdf" target="_blank" rel="noopener"><b>Study guide (PDF)</b><span>Same content as the printed pages · 45 pages</span></a>
-  <a class="btn" href="downloads/SIE-Practice-Exams.pdf" target="_blank" rel="noopener"><b>Practice exams (PDF)</b><span>Exams A and B plus a bonus drill, with answer keys</span></a>
-  <p class="meta">Tap one while online. EPUB: tap <b>Download</b>, then open it from Safari's downloads and choose <b>Books</b>. PDF: tap <b>Share</b> (or <b>•••</b> then Share), then <b>Books</b>. Once in Books, it works offline.</p>`;
+  h += `<h2>Study guide for Apple Books</h2>` + FILES.map((f, i) => `<button class="btn" id="dl${i}" onclick="saveFile(${i})"><b>${f.label}</b><span>${f.note}</span></button>`).join('') +
+  `<p class="meta">Tap a file while online, then choose <b>Books</b> in the share sheet. Don't see Books? Swipe the row of app icons to the left and tap <b>More</b>. Once a file is in Books, it works offline.</p>`;
   h += `<h2>Your progress</h2><div class="card">`;
   h += `<div class="sec"><span>Questions seen</span><span>${seen} / ${DATA.questions.length}</span></div>`;
   for (const s in SEC) {
@@ -252,6 +249,38 @@ function filterReview(all) {
   }).join('') : '<p>No misses. Nice work.</p>';
 }
 function render() { if (!S) return home(); if (S.done) return results(); question(); }
+
+
+// ---------- downloads: hand files to the iOS share sheet (works inside the Home Screen app, which has no browser controls) ----------
+const FILES = [
+  {name: 'SIE-Study-Guide.epub', type: 'application/epub+zip', label: 'Study guide (EPUB) · best for Books', note: 'Text resizes to your screen · 14 diagrams and charts · 1.4 MB'},
+  {name: 'SIE-Study-Guide.pdf', type: 'application/pdf', label: 'Study guide (PDF)', note: 'Same content as the printed pages · 45 pages'},
+  {name: 'SIE-Practice-Exams.pdf', type: 'application/pdf', label: 'Practice exams (PDF)', note: 'Exams A and B plus a bonus drill, with answer keys'}
+];
+const fileCache = {};
+function dlNote(i, text) { const b = document.getElementById('dl' + i); if (b) b.querySelector('span').textContent = text; }
+async function saveFile(i) {
+  const f = FILES[i];
+  if (!navigator.share || !navigator.canShare) { location.href = 'downloads/' + f.name; return; }  // older browsers: plain download
+  let file = fileCache[i];
+  if (!file) {
+    dlNote(i, 'Preparing…');
+    try {
+      const r = await fetch('downloads/' + f.name, {cache: 'no-cache'});
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      file = new File([await r.blob()], f.name, {type: f.type});
+    } catch (e) { dlNote(i, 'Could not download. Connect to the internet and try again.'); return; }
+    if (!navigator.canShare({files: [file]})) { location.href = 'downloads/' + f.name; return; }
+    fileCache[i] = file;
+  }
+  try {
+    await navigator.share({files: [file], title: f.label});
+    dlNote(i, f.note);
+  } catch (e) {
+    // iOS needs a fresh tap if the download took a moment; the file is ready now
+    dlNote(i, e.name === 'AbortError' ? f.note : 'Ready: tap again, then choose Books');
+  }
+}
 
 setInterval(() => {
   if (S && !S.done && S.timed && S.resumedAt) {
