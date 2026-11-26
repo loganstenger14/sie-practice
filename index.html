@@ -100,17 +100,18 @@ function start(kind, opts = {}) {
   else if (kind === 'quick') { ids = shuffle(DATA.questions.map(q => q.id)).slice(0, opts.n || 10); title = 'Quick Quiz'; }
   else if (kind === 'section') { ids = shuffle(DATA.questions.filter(q => q.s === opts.s).map(q => q.id)).slice(0, 20); title = 'Section ' + opts.s + ' Drill'; }
   else if (kind === 'missed') { ids = shuffle(missedIds()); title = 'Missed Questions'; if (!ids.length) return; }
-  S = {title, mode, timed, ids, ans: {}, flags: {}, i: 0, started: Date.now(), limit: timed ? 105 * 60 : 0, done: false, shown: {}};
+  S = {title, mode, timed, ids, ans: {}, flags: {}, i: 0, started: Date.now(), elapsed: 0, resumedAt: null, limit: timed ? 105 * 60 : 0, done: false, shown: {}};
   save(); render();
 }
 
 // ---------- views ----------
 function home() {
+  view = 'home'; pauseClock();
   $('#nav').classList.add('hide');
   const st = stats(), seen = Object.keys(st).length, miss = missedIds().length;
   const hist = store.get('history', []);
   let h = `<h1>SIE Practice</h1><p class="sub">${DATA.questions.length} questions · works offline once loaded</p>`;
-  if (S && !S.done) h += `<button class="btn primary" onclick="render()"><b>Resume: ${esc(S.title)}</b><span>Question ${S.i + 1} of ${S.ids.length}</span></button>`;
+  if (S && !S.done) h += `<button class="btn primary" onclick="render()"><b>Resume: ${esc(S.title)}</b><span>Question ${S.i + 1} of ${S.ids.length}${S.timed ? ' · timer paused at ' + fmt(timeLeft()) : ''}</span></button>`;
   h += `<h2>Full exams (timed, 75 questions, 1h 45m)</h2>
   <div class="row"><button class="btn" onclick="confirmStart('A')"><b>Exam A</b><span>Fixed set</span></button>
   <button class="btn" onclick="confirmStart('B')"><b>Exam B</b><span>Fixed set</span></button></div>
@@ -138,10 +139,16 @@ function confirmStart(k) {
 }
 function resetAll() { if (confirm('Erase all stats and history?')) { ['stats', 'history', 'session'].forEach(k => store.set(k, null)); S = null; home(); } }
 
-function timeLeft() { return Math.max(0, S.limit - Math.floor((Date.now() - S.started) / 1000)); }
+// The exam clock only runs while an exam question is on screen and the app is visible.
+let view = 'home';
+function usedMs() { return (S.elapsed || 0) + (S.resumedAt ? Date.now() - S.resumedAt : 0); }
+function timeLeft() { return Math.max(0, S.limit - Math.floor(usedMs() / 1000)); }
+function pauseClock() { if (S && S.resumedAt) { S.elapsed = usedMs(); S.resumedAt = null; save(); } }
+function resumeClock() { if (S && !S.done && S.timed && !S.resumedAt && view === 'question' && document.visibilityState === 'visible') { S.resumedAt = Date.now(); save(); } }
 function fmt(t) { const h = Math.floor(t / 3600), m = Math.floor(t % 3600 / 60), s = t % 60; return (h ? h + ':' : '') + String(m).padStart(h ? 2 : 1, '0') + ':' + String(s).padStart(2, '0'); }
 
 function question() {
+  view = 'question'; resumeClock();
   const id = S.ids[S.i], q = Q[id], chosen = S.ans[id];
   const reveal = S.mode === 'practice' && chosen !== undefined;
   const answered = Object.keys(S.ans).length;
@@ -182,17 +189,18 @@ function submit(force) {
   const left = S.ids.filter(id => S.ans[id] === undefined).length;
   if (!force && S.mode === 'exam' && left && !confirm(left + ' unanswered. Submit anyway?')) return;
   if (S.mode === 'exam') S.ids.forEach(id => { if (S.ans[id] !== undefined) record(id, S.ans[id] === Q[id].a); else record(id, false); });
-  S.done = true; S.finished = Date.now();
+  pauseClock(); S.done = true; S.finished = Date.now();
   const right = S.ids.filter(id => S.ans[id] === Q[id].a).length, pct = Math.round(right / S.ids.length * 100);
   if (S.mode === 'exam') { const hist = store.get('history', []); hist.push({title: S.title, pct, at: Date.now()}); store.set('history', hist); }
   save(); results();
 }
 function results() {
+  view = 'results';
   $('#nav').classList.add('hide');
   const right = S.ids.filter(id => S.ans[id] === Q[id].a).length, pct = Math.round(right / S.ids.length * 100);
   let h = `<div class="top"><button class="link" onclick="goHome()">‹ Menu</button></div>
   <p class="sub">${esc(S.title)}</p><div class="big ${pct >= 70 ? 'pass' : 'fail'}">${pct}%</div>
-  <p>${right} of ${S.ids.length} correct${S.mode === 'exam' ? (pct >= 70 ? ' · <b class="pass">Pass</b>' : ' · <b class="fail">Below 70</b>') : ''}${S.timed ? ' · ' + fmt(Math.floor(((S.finished || Date.now()) - S.started) / 1000)) + ' used' : ''}</p>`;
+  <p>${right} of ${S.ids.length} correct${S.mode === 'exam' ? (pct >= 70 ? ' · <b class="pass">Pass</b>' : ' · <b class="fail">Below 70</b>') : ''}${S.timed ? ' · ' + fmt(Math.floor((S.elapsed || 0) / 1000)) + ' used' : ''}</p>`;
   h += `<div class="card">`;
   for (const s in SEC) {
     const ids = S.ids.filter(id => Q[id].s === s); if (!ids.length) continue;
@@ -214,11 +222,16 @@ function filterReview(all) {
 function render() { if (!S) return home(); if (S.done) return results(); question(); }
 
 setInterval(() => {
-  if (S && !S.done && S.timed && $('#clock')) {
-    const t = timeLeft(); $('#clock').textContent = fmt(t);
+  if (S && !S.done && S.timed && S.resumedAt) {
+    S.elapsed = usedMs(); S.resumedAt = Date.now(); save();  // checkpoint, so a closed app loses at most a second
+    const t = timeLeft(); if ($('#clock')) $('#clock').textContent = fmt(t);
     if (t === 0) { alert("Time's up. Your exam will be scored now."); submit(true); }
   }
 }, 1000);
+if (S && S.resumedAt) { S.resumedAt = null; save(); }  // app was closed mid-exam: don't count the time away
+if (S && S.elapsed === undefined) { S.elapsed = 0; save(); }
+document.addEventListener('visibilitychange', () => { document.visibilityState === 'visible' ? resumeClock() : pauseClock(); });
+window.addEventListener('pagehide', pauseClock);
 home();
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
 </script>
